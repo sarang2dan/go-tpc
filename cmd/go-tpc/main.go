@@ -7,6 +7,8 @@ import (
 	sqldrv "database/sql/driver"
 	"encoding/hex"
 	"fmt"
+	logutil "github.com/pingcap/go-tpc/pkg/util/log"
+	log "github.com/sirupsen/logrus"
 	"os"
 	"os/signal"
 	"strconv"
@@ -34,6 +36,7 @@ var (
 	threads        int
 	acThreads      int
 	driver         string
+	driverMeta     util.DriverMeta
 	totalTime      time.Duration
 	totalCount     int
 	dropData       bool
@@ -47,6 +50,7 @@ var (
 	connParams     string
 	outputStyle    string
 	targets        []string
+	logLevel       string
 
 	globalDB  *sql.DB
 	globalCtx context.Context
@@ -54,8 +58,8 @@ var (
 
 const (
 	createDBDDL = "CREATE DATABASE "
-	mysqlDriver = "mysql"
-	pgDriver    = "postgres"
+	mysqlDriver = util.PtTypeMySQL
+	pgDriver    = util.PtTypePostgres
 )
 
 type MuxDriver struct {
@@ -81,7 +85,7 @@ func makeTargets(hosts []string, ports []int) []string {
 
 func newDB(targets []string, driver string, user string, password string, dbName string, connParams string) (*sql.DB, error) {
 	if len(targets) == 0 {
-		panic(fmt.Errorf("empty targets"))
+		log.Fatal("empty targets")
 	}
 	var (
 		drv   sqldrv.Driver
@@ -95,7 +99,7 @@ func newDB(targets []string, driver string, user string, password string, dbName
 	hash.Write([]byte(connParams))
 	for i, addr := range targets {
 		hash.Write([]byte(addr))
-		switch driver {
+		switch driverMeta.GetProtocolType() {
 		case mysqlDriver:
 			// allow multiple statements in one query to allow q15 on the TPC-H
 			dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?multiStatements=true", user, password, addr, dbName)
@@ -112,14 +116,15 @@ func newDB(targets []string, driver string, user string, password string, dbName
 			names[i] = dsn
 			drv = &pq.Driver{}
 		default:
-			panic(fmt.Errorf("unknown driver: %q", driver))
+			log.Errorf("unknown driver: %q", driver)
+			panic(driver)
 		}
 	}
 
 	if len(names) == 1 {
-		return sql.Open(driver, names[0])
+		return sql.Open(driverMeta.GetProtocolTypeString(), names[0])
 	}
-	drvName := driver + "+" + hex.EncodeToString(hash.Sum(nil))
+	drvName := driverMeta.GetProtocolTypeString() + "+" + hex.EncodeToString(hash.Sum(nil))
 	for _, n := range sql.Drivers() {
 		if n == drvName {
 			return sql.Open(drvName, "")
@@ -150,7 +155,8 @@ func openDB() {
 			tmpDB, _ = newDB(targets, driver, user, password, "", connParams)
 			defer tmpDB.Close()
 			if _, err := tmpDB.Exec(createDBDDL + dbName); err != nil {
-				panic(fmt.Errorf("failed to create database, err %v\n", err))
+				log.Errorf("failed to create database, err %v\n", err)
+				panic(err)
 			}
 		} else {
 			globalDB = nil
@@ -164,7 +170,7 @@ func isDBNotExist(err error) bool {
 	if err == nil {
 		return false
 	}
-	switch driver {
+	switch driverMeta.GetProtocolType() {
 	case mysqlDriver:
 		return strings.Contains(err.Error(), "Unknown database")
 	case pgDriver:
@@ -195,7 +201,7 @@ func main() {
 	rootCmd.PersistentFlags().IntVarP(&statusPort, "statusPort", "S", 10080, "Database status port")
 	rootCmd.PersistentFlags().IntVarP(&threads, "threads", "T", 1, "Thread concurrency")
 	rootCmd.PersistentFlags().IntVarP(&acThreads, "acThreads", "t", 1, "OLAP client concurrency, only for CH-benCHmark")
-	rootCmd.PersistentFlags().StringVarP(&driver, "driver", "d", mysqlDriver, "Database driver: mysql, postgres")
+	rootCmd.PersistentFlags().StringVarP(&driver, "driver", "d", "mysql", "Database driver: {mysql | postgres | tidb | singlestore | starrocks | greenplum}")
 	rootCmd.PersistentFlags().DurationVar(&totalTime, "time", 1<<63-1, "Total execution time")
 	rootCmd.PersistentFlags().IntVar(&totalCount, "count", 0, "Total execution count, 0 means infinite")
 	rootCmd.PersistentFlags().BoolVar(&dropData, "dropdata", false, "Cleanup data before prepare")
@@ -208,15 +214,28 @@ func main() {
 	rootCmd.PersistentFlags().StringVar(&connParams, "conn-params", "", "session variables, e.g. for TiDB --conn-params tidb_isolation_read_engines='tiflash', For PostgreSQL: --conn-params sslmode=disable")
 	rootCmd.PersistentFlags().StringVar(&outputStyle, "output", util.OutputStylePlain, "output style, valid values can be { plain | table | json }")
 	rootCmd.PersistentFlags().StringSliceVar(&targets, "targets", nil, "Target database addresses")
+	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "L", "info", "Print log level: one of [debug|info|warn|error|fatal] (default \"info\") (default \"info\")")
 	rootCmd.PersistentFlags().MarkHidden("targets")
 
 	cobra.EnablePrefixMatching = true
+
+	err := logutil.SetLevel(logLevel)
+	if err != nil {
+		logutil.SetLevel("warn")
+		log.Warn(err, ". set log level to default \"info\"")
+		logutil.SetLevel(logLevel)
+	}
 
 	registerVersionInfo(rootCmd)
 	registerTpcc(rootCmd)
 	registerTpch(rootCmd)
 	registerCHBenchmark(rootCmd)
 	registerRawsql(rootCmd)
+
+	err = driverMeta.SetDriver(driver)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
 
 	var cancel context.CancelFunc
 	globalCtx, cancel = context.WithCancel(context.Background())
@@ -231,16 +250,16 @@ func main() {
 	closeDone := make(chan struct{}, 1)
 	go func() {
 		sig := <-sc
-		fmt.Printf("\nGot signal [%v] to exit.\n", sig)
+		log.Warnf("\nGot signal [%v] to exit.\n", sig)
 		cancel()
 
 		select {
 		case <-sc:
 			// send signal again, return directly
-			fmt.Printf("\nGot signal [%v] again to exit.\n", sig)
+			log.Warnf("\nGot signal [%v] again to exit.\n", sig)
 			os.Exit(1)
 		case <-time.After(10 * time.Second):
-			fmt.Print("\nWait 10s for closed, force exit\n")
+			log.Warnf("\nWait 10s for closed, force exit\n")
 			os.Exit(1)
 		case <-closeDone:
 			return

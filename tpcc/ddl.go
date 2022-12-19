@@ -3,6 +3,7 @@ package tpcc
 import (
 	"context"
 	"fmt"
+	"github.com/pingcap/go-tpc/pkg/util"
 )
 
 const (
@@ -112,7 +113,7 @@ func (w *ddlManager) appendPartition(query string, partKeys string) string {
 }
 
 // createTables creates tables schema.
-func (w *ddlManager) createTables(ctx context.Context, driver string) error {
+func (w *ddlManager) createTables(ctx context.Context, driver util.DriverMeta) error {
 	if driver == "mysql" {
 		// Warehouse
 		query := `

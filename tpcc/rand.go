@@ -12,10 +12,9 @@ import (
 // convert the default mysql query to pq format
 // https://go.dev/doc/database/querying
 // Note: Parameter placeholders in prepared statements vary depending on the DBMS and driver you’re using. For example, the pq driver for Postgres requires a placeholder like $1 instead of ?.
-
-func convertToPQ(query string, driver string) string {
+func convertToPQ(query string, ptType util.ProtocolType) string {
 	// return strings.Replace(query, "?", "", -1)
-	if driver == "postgres" {
+	if ptType == util.PtTypePostgres {
 		i := 1
 		for {
 			prev := query

@@ -1,5 +1,7 @@
 package tpch
 
+import "github.com/pingcap/go-tpc/pkg/util"
+
 var queries map[string]string
 
 const (
@@ -1408,6 +1410,7 @@ func init() {
 	}
 }
 
-func query(driver string, name string) string {
-	return queries[name+":"+driver]
+// todo: 프로토콜 타입에 따라 쿼리문이 2개 그룹으로 나뉘어짐 --> 이를 driver에 따라 쿼리를 저장하고 이용해야함.
+func query(driver util.DriverMeta, name string) string {
+	return queries[name+":"+driver.GetProtocolTypeString()]
 }

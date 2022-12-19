@@ -54,7 +54,7 @@ const (
 
 // Config is the configuration for tpcc workload
 type Config struct {
-	Driver        string
+	Driver        util.DriverMeta
 	DBName        string
 	Threads       int
 	Parts         int
@@ -458,7 +458,7 @@ func (w *Workloader) beginTx(ctx context.Context) (*sql.Tx, error) {
 	return tx, err
 }
 
-func prepareStmts(driver string, ctx context.Context, conn *sql.Conn, queries []string) []*sql.Stmt {
+func prepareStmts(driver util.DriverMeta, ctx context.Context, conn *sql.Conn, queries []string) []*sql.Stmt {
 	stmts := make([]*sql.Stmt, len(queries))
 	for i, query := range queries {
 		if len(query) == 0 {
@@ -470,8 +470,8 @@ func prepareStmts(driver string, ctx context.Context, conn *sql.Conn, queries []
 	return stmts
 }
 
-func prepareStmt(driver string, ctx context.Context, conn *sql.Conn, query string) *sql.Stmt {
-	stmt, err := conn.PrepareContext(ctx, convertToPQ(query, driver))
+func prepareStmt(driver util.DriverMeta, ctx context.Context, conn *sql.Conn, query string) *sql.Stmt {
+	stmt, err := conn.PrepareContext(ctx, convertToPQ(query, driver.GetProtocolType()))
 	if err != nil {
 		fmt.Println(fmt.Sprintf("prepare statement error: %s", query))
 		panic(err)

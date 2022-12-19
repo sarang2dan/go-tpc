@@ -30,7 +30,7 @@ type analyzeConfig struct {
 
 // Config is the configuration for ch workload
 type Config struct {
-	Driver          string
+	Driver          util.DriverMeta
 	DBName          string
 	RawQueries      string
 	QueryNames      []string

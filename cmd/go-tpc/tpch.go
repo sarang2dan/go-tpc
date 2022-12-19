@@ -25,7 +25,7 @@ func executeTpch(action string) {
 	tpchConfig.PlanReplayerConfig.StatusPort = statusPort
 
 	tpchConfig.OutputStyle = outputStyle
-	tpchConfig.Driver = driver
+	tpchConfig.Driver.SetDriver(driver)
 	tpchConfig.DBName = dbName
 	tpchConfig.PrepareThreads = threads
 	tpchConfig.QueryNames = strings.Split(tpchConfig.RawQueries, ",")

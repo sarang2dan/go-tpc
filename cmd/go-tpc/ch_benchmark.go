@@ -117,12 +117,12 @@ func executeCH(action string, openAP func() (*sql.DB, error)) {
 	defer closeDB()
 
 	tpccConfig.OutputStyle = outputStyle
-	tpccConfig.Driver = driver
+	tpccConfig.Driver.SetDriver(driver)
 	tpccConfig.DBName = dbName
 	tpccConfig.Threads = threads
 	tpccConfig.Isolation = isolationLevel
 	chConfig.OutputStyle = outputStyle
-	chConfig.Driver = driver
+	chConfig.Driver.SetDriver(driver)
 	chConfig.DBName = dbName
 	chConfig.QueryNames = strings.Split(chConfig.RawQueries, ",")
 	if action == "run" {

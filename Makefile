@@ -21,7 +21,7 @@ format: vet fmt
 fmt:
 	@echo "gofmt"
 	@gofmt -w ${FILES_TO_FMT}
-	@git diff --exit-code .
+	-@git diff --exit-code .
 
 test:
 	go test ./... -cover $(PACKAGES)
@@ -35,7 +35,7 @@ vet:
 mod:
 	@echo "go mod tidy"
 	GO111MODULE=on go mod tidy
-	@git diff --exit-code -- go.sum go.mod
+	-@git diff --exit-code -- go.sum go.mod
 
 docker-build: test
 	docker build . -t ${IMG}
